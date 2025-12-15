@@ -1,18 +1,53 @@
 export class Paddle {
   x: number;
   y: number;
-  width: number;
+  baseWidth: number; // Original width
+  width: number; // Current width (can be modified by power-ups)
   height: number;
   speed: number;
   color: string;
+  sizePowerUpActive: boolean;
+  sizePowerUpExpiresAt: number;
 
   constructor(x: number, y: number, width: number, height: number) {
     this.x = x;
     this.y = y;
+    this.baseWidth = width;
     this.width = width;
     this.height = height;
     this.speed = 7;
     this.color = "#00D4FF";
+    this.sizePowerUpActive = false;
+    this.sizePowerUpExpiresAt = 0;
+  }
+
+  /**
+   * Activate paddle size increase power-up
+   * @param duration Duration in milliseconds
+   * @param multiplier Size multiplier (e.g., 1.5 for 50% increase)
+   */
+  activateSizePowerUp(duration: number, multiplier: number) {
+    this.sizePowerUpActive = true;
+    this.sizePowerUpExpiresAt = Date.now() + duration;
+    this.width = this.baseWidth * multiplier;
+  }
+
+  /**
+   * Update power-up state and deactivate if expired
+   */
+  updatePowerUps() {
+    if (this.sizePowerUpActive && Date.now() >= this.sizePowerUpExpiresAt) {
+      this.sizePowerUpActive = false;
+      this.width = this.baseWidth;
+    }
+  }
+
+  /**
+   * Get remaining time for size power-up in milliseconds
+   */
+  getSizePowerUpRemainingTime(): number {
+    if (!this.sizePowerUpActive) return 0;
+    return Math.max(0, this.sizePowerUpExpiresAt - Date.now());
   }
 
   moveLeft() {

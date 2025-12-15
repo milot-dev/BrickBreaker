@@ -4,38 +4,430 @@ import { useEffect, useRef, useState } from "react";
 import { Ball } from "./gameObjects/Ball";
 import { Paddle } from "./gameObjects/Paddle";
 import { Brick } from "./gameObjects/Brick";
+import { PowerUp, PowerUpType } from "./gameObjects/PowerUp";
 import { SoundManager } from "./utils/SoundManager";
 import { Particle } from "./utils/Particle";
+import {
+  GameConfig,
+  getBrickOffsetLeft,
+  getBrickRowsForLevel,
+  getBallSpeedMultiplierForLevel,
+} from "./config/gameConfig";
 
 interface GameCanvasProps {
-  onGameEnd: (won: boolean, score: number) => void;
+  onLevelComplete?: (level: number, score: number) => void;
 }
 
-const CANVAS_WIDTH = 800;
-const CANVAS_HEIGHT = 600;
-const BRICK_ROWS = 5;
-const BRICK_COLS = 10;
-const BRICK_WIDTH = 70;
-const BRICK_HEIGHT = 25;
-const BRICK_PADDING = 5;
-const BRICK_OFFSET_TOP = 10;
-const BRICK_OFFSET_LEFT = (CANVAS_WIDTH - (BRICK_COLS * BRICK_WIDTH + (BRICK_COLS - 1) * BRICK_PADDING)) / 2;
-
-export default function GameCanvas({ onGameEnd }: GameCanvasProps) {
+export default function GameCanvas({ onLevelComplete }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [score, setScore] = useState(0);
+  const [level, setLevel] = useState(1);
+  const [showLevelTransition, setShowLevelTransition] = useState(false);
+  const [activePowerUps, setActivePowerUps] = useState({
+    paddleSize: 0,
+    slowBall: 0,
+  });
   const gameLoopRef = useRef<number>(0);
   const ballRef = useRef<Ball | null>(null);
   const paddleRef = useRef<Paddle | null>(null);
   const bricksRef = useRef<Brick[]>([]);
+  const powerUpsRef = useRef<PowerUp[]>([]);
   const keysRef = useRef<{ [key: string]: boolean }>({});
   const soundManagerRef = useRef<SoundManager | null>(null);
-  const scoreRef = useRef(0);
-  const bricksDestroyedRef = useRef(0);
   const particlesRef = useRef<Particle[]>([]);
   const screenShakeRef = useRef({ x: 0, y: 0, intensity: 0 });
+  const slowBallPowerUpExpiresAtRef = useRef<number>(0);
 
-  // Initialize game objects
+  /**
+   * Initialize game objects for a level
+   */
+  const initializeLevel = (levelNumber: number) => {
+    // Initialize paddle
+    const paddleX = GameConfig.CANVAS_WIDTH / 2 - GameConfig.PADDLE_WIDTH / 2;
+    const paddleY = GameConfig.CANVAS_HEIGHT - GameConfig.PADDLE_Y_OFFSET;
+    paddleRef.current = new Paddle(
+      paddleX,
+      paddleY,
+      GameConfig.PADDLE_WIDTH,
+      GameConfig.PADDLE_HEIGHT
+    );
+    paddleRef.current.speed = GameConfig.PADDLE_SPEED;
+
+    // Initialize ball with level-appropriate speed
+    const speedMultiplier = getBallSpeedMultiplierForLevel(levelNumber);
+    const ballSpeed = GameConfig.BALL_BASE_SPEED * speedMultiplier;
+    const ballX = GameConfig.CANVAS_WIDTH / 2 + GameConfig.BALL_START_X_OFFSET;
+    const ballY = GameConfig.CANVAS_HEIGHT + GameConfig.BALL_START_Y_OFFSET;
+    ballRef.current = new Ball(
+      ballX,
+      ballY,
+      GameConfig.BALL_RADIUS,
+      -ballSpeed,
+      -ballSpeed
+    );
+
+    // Initialize bricks
+    bricksRef.current = [];
+    const brickRows = getBrickRowsForLevel(levelNumber);
+    const brickOffsetLeft = getBrickOffsetLeft();
+
+    // Generate level layout (simple patterns)
+    const layoutPattern = getLevelLayoutPattern(
+      levelNumber,
+      brickRows,
+      GameConfig.BRICK_COLS
+    );
+
+    for (let row = 0; row < brickRows; row++) {
+      for (let col = 0; col < GameConfig.BRICK_COLS; col++) {
+        // Check if this position should have a brick based on layout pattern
+        if (layoutPattern[row][col]) {
+          const x =
+            col * (GameConfig.BRICK_WIDTH + GameConfig.BRICK_PADDING) +
+            brickOffsetLeft;
+          const y =
+            row * (GameConfig.BRICK_HEIGHT + GameConfig.BRICK_PADDING) +
+            GameConfig.BRICK_OFFSET_TOP;
+          const color =
+            GameConfig.BRICK_COLORS[row % GameConfig.BRICK_COLORS.length];
+          const brick = new Brick(
+            x,
+            y,
+            GameConfig.BRICK_WIDTH,
+            GameConfig.BRICK_HEIGHT,
+            color,
+            row * GameConfig.BRICK_COLS + col
+          );
+          bricksRef.current.push(brick);
+        }
+      }
+    }
+
+    // Clear power-ups and particles
+    powerUpsRef.current = [];
+    particlesRef.current = [];
+    screenShakeRef.current = { x: 0, y: 0, intensity: 0 };
+    slowBallPowerUpExpiresAtRef.current = 0;
+  };
+
+  /**
+   * Generate layout pattern for a level with progressive difficulty
+   * Patterns get harder as levels increase
+   */
+  const getLevelLayoutPattern = (
+    level: number,
+    rows: number,
+    cols: number
+  ): boolean[][] => {
+    const pattern: boolean[][] = [];
+
+    // Determine pattern type based on level (one pattern per level)
+    // 8 patterns total, cycles every 8 levels
+    // Level 1 → Pattern 0, Level 2 → Pattern 1, ..., Level 8 → Pattern 7, then cycles back
+    const patternType = (level - 1) % 8;
+
+    for (let row = 0; row < rows; row++) {
+      pattern[row] = [];
+      for (let col = 0; col < cols; col++) {
+        let hasBrick = false;
+
+        switch (patternType) {
+          case 0: // Full grid - all bricks
+            hasBrick = true;
+            break;
+
+          case 1: // Checkerboard pattern
+            hasBrick = (row + col) % 2 === 0;
+            break;
+
+          case 2: // Pyramid - fewer bricks in middle
+            const centerCol = cols / 2;
+            const distanceFromCenter = Math.abs(col - centerCol);
+            const maxDistance = Math.floor(rows / 2) + 1;
+            hasBrick = distanceFromCenter < maxDistance - row;
+            break;
+
+          case 3: // Hollow center - bricks only on edges
+            const isEdge =
+              row === 0 || row === rows - 1 || col === 0 || col === cols - 1;
+            const centerRow = Math.floor(rows / 2);
+            const centerCol2 = Math.floor(cols / 2);
+            const isNearCenter =
+              Math.abs(row - centerRow) <= 1 && Math.abs(col - centerCol2) <= 2;
+            hasBrick = isEdge || !isNearCenter;
+            break;
+
+          case 4: // Side columns - bricks on left and right edges
+            const edgeWidth = Math.max(2, Math.floor(cols / 4));
+            hasBrick = col < edgeWidth || col >= cols - edgeWidth;
+            break;
+
+          case 5: // Diagonal stripes
+            const stripeWidth = 2;
+            const diagonalIndex = (row + col) % (stripeWidth * 2);
+            hasBrick = diagonalIndex < stripeWidth;
+            break;
+
+          case 6: // Concentric rings - harder to clear center
+            const centerRow2 = rows / 2;
+            const centerCol3 = cols / 2;
+            const distanceFromCenterRow = Math.abs(row - centerRow2);
+            const distanceFromCenterCol = Math.abs(col - centerCol3);
+            const ringDistance = Math.max(
+              distanceFromCenterRow,
+              distanceFromCenterCol
+            );
+            // Create rings - every other ring has bricks
+            hasBrick = Math.floor(ringDistance) % 2 === 0;
+            break;
+
+          case 7: // Sparse random - challenging pattern
+            // 60% chance per position, but ensure at least some bricks
+            const randomValue = (row * cols + col + level * 17) % 100;
+            hasBrick = randomValue < 60;
+            // Ensure at least one brick per row
+            if (col === cols - 1 && !pattern[row].some((b) => b)) {
+              hasBrick = true;
+            }
+            break;
+        }
+
+        pattern[row][col] = hasBrick;
+      }
+    }
+    return pattern;
+  };
+
+  /**
+   * Reset current level (when ball falls)
+   */
+  const resetLevel = () => {
+    soundManagerRef.current?.playGameOver();
+    initializeLevel(level);
+    if (GameConfig.RESET_SCORE_ON_LEVEL_RESET) {
+      setScore(0);
+    }
+  };
+
+  /**
+   * Complete current level and advance to next
+   */
+  const completeLevel = () => {
+    soundManagerRef.current?.playWin();
+    setShowLevelTransition(true);
+    setTimeout(() => {
+      const nextLevel = level + 1;
+      setLevel(nextLevel);
+      initializeLevel(nextLevel);
+      setShowLevelTransition(false);
+      onLevelComplete?.(nextLevel - 1, score);
+    }, GameConfig.LEVEL_TRANSITION_DELAY);
+  };
+
+  /**
+   * Check collision between ball and rectangle with improved corner handling
+   */
+  const checkBallRectCollision = (
+    ballX: number,
+    ballY: number,
+    ballRadius: number,
+    rectX: number,
+    rectY: number,
+    rectWidth: number,
+    rectHeight: number
+  ): {
+    collides: boolean;
+    side: "left" | "right" | "top" | "bottom" | "corner" | null;
+  } => {
+    const ballLeft = ballX - ballRadius;
+    const ballRight = ballX + ballRadius;
+    const ballTop = ballY - ballRadius;
+    const ballBottom = ballY + ballRadius;
+
+    if (
+      ballRight >= rectX &&
+      ballLeft <= rectX + rectWidth &&
+      ballBottom >= rectY &&
+      ballTop <= rectY + rectHeight
+    ) {
+      // Calculate overlaps
+      const overlapLeft = ballRight - rectX;
+      const overlapRight = rectX + rectWidth - ballLeft;
+      const overlapTop = ballBottom - rectY;
+      const overlapBottom = rectY + rectHeight - ballTop;
+
+      // Check if this is a corner collision (ball is near a corner)
+      const cornerThreshold = ballRadius * 0.7; // Threshold for corner detection
+      const isNearLeftCorner = overlapLeft < cornerThreshold;
+      const isNearRightCorner = overlapRight < cornerThreshold;
+      const isNearTopCorner = overlapTop < cornerThreshold;
+      const isNearBottomCorner = overlapBottom < cornerThreshold;
+
+      // If ball is near two adjacent corners, treat as corner collision
+      if (
+        (isNearLeftCorner && isNearTopCorner) ||
+        (isNearLeftCorner && isNearBottomCorner) ||
+        (isNearRightCorner && isNearTopCorner) ||
+        (isNearRightCorner && isNearBottomCorner)
+      ) {
+        return { collides: true, side: "corner" };
+      }
+
+      // Determine which side was hit based on minimum overlap
+      const minOverlap = Math.min(
+        overlapLeft,
+        overlapRight,
+        overlapTop,
+        overlapBottom
+      );
+
+      if (minOverlap === overlapLeft) return { collides: true, side: "left" };
+      if (minOverlap === overlapRight) return { collides: true, side: "right" };
+      if (minOverlap === overlapTop) return { collides: true, side: "top" };
+      return { collides: true, side: "bottom" };
+    }
+
+    return { collides: false, side: null };
+  };
+
+  /**
+   * Destroy the bottommost row of bricks
+   */
+  const destroyBottomRow = () => {
+    if (bricksRef.current.length === 0) return;
+
+    // Find the bottommost row (highest y value)
+    let bottommostY = 0;
+    bricksRef.current.forEach((brick) => {
+      if (brick.visible && brick.y > bottommostY) {
+        bottommostY = brick.y;
+      }
+    });
+
+    // Destroy all bricks in the bottommost row
+    let destroyedCount = 0;
+    bricksRef.current = bricksRef.current.filter((brick) => {
+      if (brick.visible && Math.abs(brick.y - bottommostY) < 1) {
+        // Create particles for destroyed brick
+        const brickCenterX = brick.x + brick.width / 2;
+        const brickCenterY = brick.y + brick.height / 2;
+        for (let i = 0; i < GameConfig.PARTICLE_COUNT_BRICK_BREAK; i++) {
+          particlesRef.current.push(
+            new Particle(brickCenterX, brickCenterY, brick.color)
+          );
+        }
+        destroyedCount++;
+        return false; // Remove brick
+      }
+      return true;
+    });
+
+    // Update score
+    if (destroyedCount > 0) {
+      setScore((prev) => prev + destroyedCount * GameConfig.POINTS_PER_BRICK);
+      soundManagerRef.current?.playBrickBreak();
+      // Screen shake
+      screenShakeRef.current.intensity = GameConfig.SCREEN_SHAKE_INTENSITY;
+    }
+  };
+
+  /**
+   * Handle brick collision
+   */
+  const handleBrickCollision = (brick: Brick) => {
+    const ball = ballRef.current!;
+    const collision = checkBallRectCollision(
+      ball.x,
+      ball.y,
+      ball.radius,
+      brick.x,
+      brick.y,
+      brick.width,
+      brick.height
+    );
+
+    if (collision.collides && collision.side) {
+      // Handle corner collisions specially to prevent getting stuck
+      if (collision.side === "corner") {
+        // For corner collisions, bounce both directions and push ball away
+        ball.baseDx = -ball.baseDx;
+        ball.baseDy = -ball.baseDy;
+        ball.dx = ball.baseDx * ball.speedMultiplier;
+        ball.dy = ball.baseDy * ball.speedMultiplier;
+        // Push ball away from brick center to prevent overlap
+        const brickCenterX = brick.x + brick.width / 2;
+        const brickCenterY = brick.y + brick.height / 2;
+        const dx = ball.x - brickCenterX;
+        const dy = ball.y - brickCenterY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance > 0) {
+          const pushDistance =
+            ball.radius + Math.max(brick.width, brick.height) / 2 + 1;
+          ball.x = brickCenterX + (dx / distance) * pushDistance;
+          ball.y = brickCenterY + (dy / distance) * pushDistance;
+        }
+      } else if (collision.side === "left" || collision.side === "right") {
+        // Horizontal collision
+        ball.baseDx = -ball.baseDx;
+        ball.dx = ball.baseDx * ball.speedMultiplier;
+        if (collision.side === "left") {
+          ball.x = brick.x - ball.radius - 0.5; // Small offset to prevent overlap
+        } else {
+          ball.x = brick.x + brick.width + ball.radius + 0.5;
+        }
+      } else {
+        // Vertical collision
+        ball.baseDy = -ball.baseDy;
+        ball.dy = ball.baseDy * ball.speedMultiplier;
+        if (collision.side === "top") {
+          ball.y = brick.y - ball.radius - 0.5; // Small offset to prevent overlap
+        } else {
+          ball.y = brick.y + brick.height + ball.radius + 0.5;
+        }
+      }
+
+      // Create particles
+      const brickCenterX = brick.x + brick.width / 2;
+      const brickCenterY = brick.y + brick.height / 2;
+      for (let i = 0; i < GameConfig.PARTICLE_COUNT_BRICK_BREAK; i++) {
+        particlesRef.current.push(
+          new Particle(brickCenterX, brickCenterY, brick.color)
+        );
+      }
+
+      // Screen shake
+      screenShakeRef.current.intensity = GameConfig.SCREEN_SHAKE_INTENSITY;
+
+      // Update score
+      setScore((prev) => prev + GameConfig.POINTS_PER_BRICK);
+
+      // Randomly spawn power-up
+      if (Math.random() < GameConfig.POWERUP_SPAWN_RATE) {
+        const rand = Math.random();
+        let powerUpType: PowerUpType;
+        if (rand < 0.33) {
+          powerUpType = "paddleSize";
+        } else if (rand < 0.66) {
+          powerUpType = "slowBall";
+        } else {
+          powerUpType = "destroyRow";
+        }
+        powerUpsRef.current.push(
+          new PowerUp(
+            brickCenterX - GameConfig.POWERUP_SIZE / 2,
+            brickCenterY,
+            powerUpType
+          )
+        );
+      }
+
+      soundManagerRef.current?.playBrickBreak();
+      return true; // Brick was hit
+    }
+    return false;
+  };
+
+  // Initialize game
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -43,54 +435,8 @@ export default function GameCanvas({ onGameEnd }: GameCanvasProps) {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // Initialize sound manager
     soundManagerRef.current = new SoundManager();
-
-    // Initialize score ref and speed
-    scoreRef.current = 0;
-    bricksDestroyedRef.current = 0;
-    particlesRef.current = [];
-    screenShakeRef.current = { x: 0, y: 0, intensity: 0 };
-    setScore(0);
-
-    // Initialize paddle (faster speed)
-    paddleRef.current = new Paddle(
-      CANVAS_WIDTH / 2 - 50,
-      CANVAS_HEIGHT - 30,
-      100,
-      15
-    );
-    paddleRef.current.speed = 10;
-
-    // Initialize ball (faster initial speed)
-    ballRef.current = new Ball(CANVAS_WIDTH / 2, CANVAS_HEIGHT - 50, 8, -6, -6);
-
-    // Initialize bricks
-    bricksRef.current = [];
-    const colors = [
-      "#FF6B6B",
-      "#4ECDC4",
-      "#45B7D1",
-      "#FFA07A",
-      "#98D8C8",
-      "#F7DC6F",
-    ];
-
-    for (let row = 0; row < BRICK_ROWS; row++) {
-      for (let col = 0; col < BRICK_COLS; col++) {
-        const x = col * (BRICK_WIDTH + BRICK_PADDING) + BRICK_OFFSET_LEFT;
-        const y = row * (BRICK_HEIGHT + BRICK_PADDING) + BRICK_OFFSET_TOP;
-        const brick = new Brick(
-          x,
-          y,
-          BRICK_WIDTH,
-          BRICK_HEIGHT,
-          colors[row % colors.length],
-          row * BRICK_COLS + col
-        );
-        bricksRef.current.push(brick);
-      }
-    }
+    initializeLevel(1);
 
     // Keyboard event handlers
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -114,7 +460,7 @@ export default function GameCanvas({ onGameEnd }: GameCanvasProps) {
           (Math.random() - 0.5) * screenShakeRef.current.intensity;
         screenShakeRef.current.y =
           (Math.random() - 0.5) * screenShakeRef.current.intensity;
-        screenShakeRef.current.intensity *= 0.9;
+        screenShakeRef.current.intensity *= GameConfig.SCREEN_SHAKE_DECAY;
         if (screenShakeRef.current.intensity < 0.1) {
           screenShakeRef.current.intensity = 0;
           screenShakeRef.current.x = 0;
@@ -128,15 +474,74 @@ export default function GameCanvas({ onGameEnd }: GameCanvasProps) {
         return !particle.isDead();
       });
 
+      // Update power-ups
+      powerUpsRef.current = powerUpsRef.current.filter((powerUp) => {
+        powerUp.update();
+        if (powerUp.isOffScreen(GameConfig.CANVAS_HEIGHT)) {
+          return false;
+        }
+        // Check collision with paddle
+        if (
+          powerUp.collidesWithPaddle(
+            paddleRef.current!.x,
+            paddleRef.current!.y,
+            paddleRef.current!.width,
+            paddleRef.current!.height
+          )
+        ) {
+          // Activate power-up
+          if (powerUp.type === "paddleSize") {
+            paddleRef.current!.activateSizePowerUp(
+              GameConfig.PADDLE_SIZE_POWERUP_DURATION,
+              GameConfig.PADDLE_SIZE_POWERUP_MULTIPLIER
+            );
+          } else if (powerUp.type === "slowBall") {
+            ballRef.current!.setSpeedMultiplier(
+              GameConfig.SLOW_BALL_SPEED_MULTIPLIER
+            );
+            slowBallPowerUpExpiresAtRef.current =
+              Date.now() + GameConfig.SLOW_BALL_POWERUP_DURATION;
+          } else if (powerUp.type === "destroyRow") {
+            // Instant effect - destroy bottommost row
+            destroyBottomRow();
+          }
+          return false; // Remove power-up
+        }
+        return true;
+      });
+
+      // Update paddle power-ups
+      paddleRef.current.updatePowerUps();
+
+      // Update ball slow power-up
+      if (
+        slowBallPowerUpExpiresAtRef.current > 0 &&
+        Date.now() >= slowBallPowerUpExpiresAtRef.current
+      ) {
+        ballRef.current.setSpeedMultiplier(1.0);
+        slowBallPowerUpExpiresAtRef.current = 0;
+      }
+
+      // Update power-up display
+      setActivePowerUps({
+        paddleSize: paddleRef.current.sizePowerUpActive
+          ? paddleRef.current.getSizePowerUpRemainingTime()
+          : 0,
+        slowBall:
+          slowBallPowerUpExpiresAtRef.current > 0
+            ? Math.max(0, slowBallPowerUpExpiresAtRef.current - Date.now())
+            : 0,
+      });
+
       // Apply screen shake transform
       ctx.save();
       ctx.translate(screenShakeRef.current.x, screenShakeRef.current.y);
 
       // Clear canvas
       ctx.fillStyle = "rgba(0, 0, 0, 0.1)";
-      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      ctx.fillRect(0, 0, GameConfig.CANVAS_WIDTH, GameConfig.CANVAS_HEIGHT);
 
-      // Update paddle position
+      // Handle input
       if (
         keysRef.current["ArrowLeft"] ||
         keysRef.current["a"] ||
@@ -151,23 +556,33 @@ export default function GameCanvas({ onGameEnd }: GameCanvasProps) {
       ) {
         paddleRef.current.moveRight();
       }
-      paddleRef.current.update(CANVAS_WIDTH);
+      paddleRef.current.update(GameConfig.CANVAS_WIDTH);
 
-      // Store previous ball position for collision detection
-      const prevBallX = ballRef.current.x;
-      const prevBallY = ballRef.current.y;
-
-      // Update ball position
+      // Update ball
       ballRef.current.update();
 
-      // Check wall collisions
-      if (
-        ballRef.current.x - ballRef.current.radius <= 0 ||
-        ballRef.current.x + ballRef.current.radius >= CANVAS_WIDTH
+      // Check wall collisions with position correction to prevent sticking
+      if (ballRef.current.x - ballRef.current.radius <= 0) {
+        ballRef.current.baseDx = -ballRef.current.baseDx;
+        ballRef.current.dx =
+          ballRef.current.baseDx * ballRef.current.speedMultiplier;
+        ballRef.current.x = ballRef.current.radius + 0.5; // Push away from wall
+        for (let i = 0; i < GameConfig.PARTICLE_COUNT_WALL_HIT; i++) {
+          particlesRef.current.push(
+            new Particle(ballRef.current.x, ballRef.current.y, "#64C8FF")
+          );
+        }
+        soundManagerRef.current?.playHit();
+      } else if (
+        ballRef.current.x + ballRef.current.radius >=
+        GameConfig.CANVAS_WIDTH
       ) {
-        ballRef.current.dx = -ballRef.current.dx;
-        // Add particles on wall hit
-        for (let i = 0; i < 3; i++) {
+        ballRef.current.baseDx = -ballRef.current.baseDx;
+        ballRef.current.dx =
+          ballRef.current.baseDx * ballRef.current.speedMultiplier;
+        ballRef.current.x =
+          GameConfig.CANVAS_WIDTH - ballRef.current.radius - 0.5; // Push away from wall
+        for (let i = 0; i < GameConfig.PARTICLE_COUNT_WALL_HIT; i++) {
           particlesRef.current.push(
             new Particle(ballRef.current.x, ballRef.current.y, "#64C8FF")
           );
@@ -175,9 +590,11 @@ export default function GameCanvas({ onGameEnd }: GameCanvasProps) {
         soundManagerRef.current?.playHit();
       }
       if (ballRef.current.y - ballRef.current.radius <= 0) {
-        ballRef.current.dy = -ballRef.current.dy;
-        // Add particles on wall hit
-        for (let i = 0; i < 3; i++) {
+        ballRef.current.baseDy = -ballRef.current.baseDy;
+        ballRef.current.dy =
+          ballRef.current.baseDy * ballRef.current.speedMultiplier;
+        ballRef.current.y = ballRef.current.radius + 0.5; // Push away from wall
+        for (let i = 0; i < GameConfig.PARTICLE_COUNT_WALL_HIT; i++) {
           particlesRef.current.push(
             new Particle(ballRef.current.x, ballRef.current.y, "#64C8FF")
           );
@@ -185,207 +602,80 @@ export default function GameCanvas({ onGameEnd }: GameCanvasProps) {
         soundManagerRef.current?.playHit();
       }
 
-      // Check bottom boundary (game over)
-      if (ballRef.current.y + ballRef.current.radius >= CANVAS_HEIGHT) {
-        soundManagerRef.current?.playGameOver();
-        onGameEnd(false, scoreRef.current);
+      // Check bottom boundary (level reset)
+      if (
+        ballRef.current.y + ballRef.current.radius >=
+        GameConfig.CANVAS_HEIGHT
+      ) {
+        resetLevel();
+        ctx.restore();
+        gameLoopRef.current = requestAnimationFrame(gameLoop);
         return;
       }
 
       // Check paddle collision
-      if (
-        ballRef.current.y + ballRef.current.radius >= paddleRef.current.y &&
-        ballRef.current.x >= paddleRef.current.x &&
-        ballRef.current.x <= paddleRef.current.x + paddleRef.current.width &&
-        ballRef.current.dy > 0
-      ) {
+      const paddleCollision = checkBallRectCollision(
+        ballRef.current.x,
+        ballRef.current.y,
+        ballRef.current.radius,
+        paddleRef.current.x,
+        paddleRef.current.y,
+        paddleRef.current.width,
+        paddleRef.current.height
+      );
+
+      if (paddleCollision.collides && ballRef.current.dy > 0) {
         // Calculate hit position on paddle (affects bounce angle)
         const hitPos =
           (ballRef.current.x - paddleRef.current.x) / paddleRef.current.width;
         const angle = (hitPos - 0.5) * Math.PI * 0.5; // -PI/4 to PI/4
-        const speed = Math.sqrt(
-          ballRef.current.dx ** 2 + ballRef.current.dy ** 2
+        // Calculate base speed (without multiplier)
+        const baseSpeed = Math.sqrt(
+          ballRef.current.baseDx ** 2 + ballRef.current.baseDy ** 2
         );
-        ballRef.current.dx = Math.sin(angle) * speed;
-        ballRef.current.dy = -Math.abs(Math.cos(angle) * speed);
+        ballRef.current.baseDx = Math.sin(angle) * baseSpeed;
+        ballRef.current.baseDy = -Math.abs(Math.cos(angle) * baseSpeed);
+        // Apply speed multiplier
+        ballRef.current.dx =
+          ballRef.current.baseDx * ballRef.current.speedMultiplier;
+        ballRef.current.dy =
+          ballRef.current.baseDy * ballRef.current.speedMultiplier;
         ballRef.current.y = paddleRef.current.y - ballRef.current.radius;
 
-        // Add particles on paddle hit
-        for (let i = 0; i < 5; i++) {
+        for (let i = 0; i < GameConfig.PARTICLE_COUNT_PADDLE_HIT; i++) {
           particlesRef.current.push(
             new Particle(ballRef.current.x, ballRef.current.y, "#00D4FF")
           );
         }
-
         soundManagerRef.current?.playHit();
       }
 
-      // Check brick collisions with improved detection
+      // Check brick collisions
       bricksRef.current = bricksRef.current.filter((brick) => {
         if (!brick.visible) return false;
-
-        const ball = ballRef.current!;
-
-        // Improved collision detection: check if ball overlaps with brick
-        // Also check previous position to catch fast-moving balls
-        const ballLeft = ball.x - ball.radius;
-        const ballRight = ball.x + ball.radius;
-        const ballTop = ball.y - ball.radius;
-        const ballBottom = ball.y + ball.radius;
-
-        const prevBallLeft = prevBallX - ball.radius;
-        const prevBallRight = prevBallX + ball.radius;
-        const prevBallTop = prevBallY - ball.radius;
-        const prevBallBottom = prevBallY + ball.radius;
-
-        // Check if ball currently overlaps with brick
-        const currentlyOverlapping =
-          ballRight >= brick.x &&
-          ballLeft <= brick.x + brick.width &&
-          ballBottom >= brick.y &&
-          ballTop <= brick.y + brick.height;
-
-        // Check if ball passed through brick (for fast-moving balls)
-        // This checks if the ball's path intersected the brick
-        const brickLeft = brick.x;
-        const brickRight = brick.x + brick.width;
-        const brickTop = brick.y;
-        const brickBottom = brick.y + brick.height;
-
-        // Check if ball's movement path intersects brick
-        // We check if the ball's bounding box (swept from previous to current position) overlaps with brick
-        const sweptLeft = Math.min(prevBallLeft, ballLeft);
-        const sweptRight = Math.max(prevBallRight, ballRight);
-        const sweptTop = Math.min(prevBallTop, ballTop);
-        const sweptBottom = Math.max(prevBallBottom, ballBottom);
-
-        const sweptOverlaps =
-          sweptRight >= brickLeft &&
-          sweptLeft <= brickRight &&
-          sweptBottom >= brickTop &&
-          sweptTop <= brickBottom;
-
-        // Only count as collision if ball is actually in contact with brick
-        // (either currently overlapping or swept through it)
-        if (currentlyOverlapping || sweptOverlaps) {
-          // Calculate movement direction
-          const ballPrevDx = ball.x - prevBallX;
-          const ballPrevDy = ball.y - prevBallY;
-
-          // Determine collision side based on which edge the ball crossed
-          // Check which side of the brick the ball entered from
-          let hitFromLeft = false;
-          let hitFromRight = false;
-          let hitFromTop = false;
-          let hitFromBottom = false;
-
-          if (prevBallRight <= brickLeft && ballRight > brickLeft) {
-            hitFromLeft = true;
-          }
-          if (prevBallLeft >= brickRight && ballLeft < brickRight) {
-            hitFromRight = true;
-          }
-          if (prevBallBottom <= brickTop && ballBottom > brickTop) {
-            hitFromTop = true;
-          }
-          if (prevBallTop >= brickBottom && ballTop < brickBottom) {
-            hitFromBottom = true;
-          }
-
-          // Determine bounce direction based on which side was hit
-          // Priority: if hit from left/right, bounce horizontally; if top/bottom, bounce vertically
-          if (hitFromLeft || hitFromRight) {
-            ball.dx = -ball.dx;
-            // Position ball outside brick horizontally
-            if (hitFromLeft) {
-              ball.x = brickLeft - ball.radius;
-            } else {
-              ball.x = brickRight + ball.radius;
-            }
-          } else if (hitFromTop || hitFromBottom) {
-            ball.dy = -ball.dy;
-            // Position ball outside brick vertically
-            if (hitFromTop) {
-              ball.y = brickTop - ball.radius;
-            } else {
-              ball.y = brickBottom + ball.radius;
-            }
-          } else {
-            // Fallback: use movement direction
-            if (Math.abs(ballPrevDx) > Math.abs(ballPrevDy)) {
-              ball.dx = -ball.dx;
-              if (ballPrevDx > 0) {
-                ball.x = brickLeft - ball.radius;
-              } else {
-                ball.x = brickRight + ball.radius;
-              }
-            } else {
-              ball.dy = -ball.dy;
-              if (ballPrevDy > 0) {
-                ball.y = brickTop - ball.radius;
-              } else {
-                ball.y = brickBottom + ball.radius;
-              }
-            }
-          }
-
-          // Create particles when brick is destroyed
-          const brickCenterX = brick.x + brick.width / 2;
-          const brickCenterY = brick.y + brick.height / 2;
-          for (let i = 0; i < 8; i++) {
-            particlesRef.current.push(
-              new Particle(brickCenterX, brickCenterY, brick.color)
-            );
-          }
-
-          // Add screen shake
-          screenShakeRef.current.intensity = 3;
-
-          // Increase speed when brick is destroyed (2% increase per brick)
-          bricksDestroyedRef.current += 1;
-          const speedIncrease = 1.02; // 2% increase
-          ball.dx *= speedIncrease;
-          ball.dy *= speedIncrease;
-
-          setScore((prev) => {
-            const newScore = prev + 10;
-            scoreRef.current = newScore;
-            return newScore;
-          });
-          soundManagerRef.current?.playBrickBreak();
-          return false; // Remove brick
-        }
-        return true;
+        return !handleBrickCollision(brick);
       });
 
-      // Check win condition
+      // Check level completion
       if (bricksRef.current.length === 0) {
-        soundManagerRef.current?.playWin();
-        onGameEnd(true, scoreRef.current);
+        completeLevel();
+        ctx.restore();
+        gameLoopRef.current = requestAnimationFrame(gameLoop);
         return;
       }
 
-      // Draw paddle
+      // Render everything
       paddleRef.current.draw(ctx);
-
-      // Draw ball
       ballRef.current.draw(ctx);
-
-      // Draw bricks
       bricksRef.current.forEach((brick) => {
         if (brick.visible) {
           brick.draw(ctx);
         }
       });
+      powerUpsRef.current.forEach((powerUp) => powerUp.draw(ctx));
+      particlesRef.current.forEach((particle) => particle.draw(ctx));
 
-      // Draw particles
-      particlesRef.current.forEach((particle) => {
-        particle.draw(ctx);
-      });
-
-      // Restore transform (remove screen shake)
       ctx.restore();
-
       gameLoopRef.current = requestAnimationFrame(gameLoop);
     };
 
@@ -398,19 +688,43 @@ export default function GameCanvas({ onGameEnd }: GameCanvasProps) {
         cancelAnimationFrame(gameLoopRef.current);
       }
     };
-  }, [onGameEnd]);
+  }, []);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen p-4">
-      <div className="mb-4">
+      <div className="mb-4 flex gap-6 items-center">
         <div className="text-2xl font-bold text-white drop-shadow-lg">
-          Score: <span className="text-yellow-300 animate-pulse">{score}</span>
+          Level: <span className="text-cyan-300">{level}</span>
         </div>
+        <div className="text-2xl font-bold text-white drop-shadow-lg">
+          Score: <span className="text-yellow-300">{score}</span>
+        </div>
+        {(activePowerUps.paddleSize > 0 || activePowerUps.slowBall > 0) && (
+          <div className="flex gap-4 text-sm text-white">
+            {activePowerUps.paddleSize > 0 && (
+              <div className="bg-green-500/30 px-3 py-1 rounded">
+                Paddle Size: {(activePowerUps.paddleSize / 1000).toFixed(1)}s
+              </div>
+            )}
+            {activePowerUps.slowBall > 0 && (
+              <div className="bg-yellow-500/30 px-3 py-1 rounded">
+                Slow Ball: {(activePowerUps.slowBall / 1000).toFixed(1)}s
+              </div>
+            )}
+          </div>
+        )}
       </div>
+      {showLevelTransition && (
+        <div className="absolute inset-0 flex items-center justify-center z-50 bg-black/50">
+          <div className="text-6xl font-bold text-white drop-shadow-2xl">
+            Level {level + 1}
+          </div>
+        </div>
+      )}
       <canvas
         ref={canvasRef}
-        width={CANVAS_WIDTH}
-        height={CANVAS_HEIGHT}
+        width={GameConfig.CANVAS_WIDTH}
+        height={GameConfig.CANVAS_HEIGHT}
         className="border-4 border-cyan-400 rounded-lg shadow-2xl shadow-cyan-500/50 bg-gradient-to-b from-slate-900 to-slate-800"
       />
       <div className="mt-4 text-white/70 text-sm">

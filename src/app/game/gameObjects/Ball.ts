@@ -2,19 +2,53 @@ export class Ball {
   x: number;
   y: number;
   radius: number;
-  dx: number;
+  baseDx: number; // Base velocity (before power-up modifications)
+  baseDy: number;
+  dx: number; // Current velocity
   dy: number;
   color: string;
   trail: Array<{ x: number; y: number; alpha: number }>;
+  speedMultiplier: number; // For slow ball power-up
 
   constructor(x: number, y: number, radius: number, dx: number, dy: number) {
     this.x = x;
     this.y = y;
     this.radius = radius;
+    this.baseDx = dx;
+    this.baseDy = dy;
     this.dx = dx;
     this.dy = dy;
     this.color = "#FFFFFF";
     this.trail = [];
+    this.speedMultiplier = 1.0;
+  }
+
+  /**
+   * Set speed multiplier (for slow ball power-up)
+   */
+  setSpeedMultiplier(multiplier: number) {
+    this.speedMultiplier = multiplier;
+    this.dx = this.baseDx * this.speedMultiplier;
+    this.dy = this.baseDy * this.speedMultiplier;
+  }
+
+  /**
+   * Reset speed multiplier to 1.0
+   */
+  resetSpeedMultiplier() {
+    this.speedMultiplier = 1.0;
+    this.dx = this.baseDx * this.speedMultiplier;
+    this.dy = this.baseDy * this.speedMultiplier;
+  }
+
+  /**
+   * Update base velocity (used when speed increases per level)
+   */
+  setBaseVelocity(dx: number, dy: number) {
+    this.baseDx = dx;
+    this.baseDy = dy;
+    this.dx = this.baseDx * this.speedMultiplier;
+    this.dy = this.baseDy * this.speedMultiplier;
   }
 
   update() {

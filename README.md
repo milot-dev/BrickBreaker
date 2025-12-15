@@ -18,6 +18,24 @@ Brick Breaker is a classic arcade-style game where you control a paddle to bounc
 - **Arrow Keys (← →)** or **A/D Keys**: Move the paddle left and right
 - The paddle automatically keeps the ball in play
 
+### Level Navigation
+
+You can manually change levels using keyboard shortcuts or UI controls:
+
+**Keyboard Shortcuts:**
+
+- **Number Keys (1-9)**: Jump directly to that level
+- **+ or =**: Go to next level
+- **- or \_**: Go to previous level
+
+**UI Controls:**
+
+- **Previous Button (←)**: Go to previous level (disabled on level 1)
+- **Level Input Field**: Type a number to jump to that level
+- **Next Button (→)**: Go to next level
+
+Level changes immediately reset the game state and load the new level's pattern.
+
 ### Power-Ups
 
 Power-ups randomly drop from destroyed bricks (15% chance):
@@ -97,10 +115,20 @@ The paddle moves horizontally based on keyboard input and stays within canvas bo
 
 Levels are procedurally generated with increasing difficulty:
 
-- **Brick Layouts**: Different patterns rotate (full grid, checkerboard, pyramid, ...)
+- **Brick Layouts**: Each level uses a different pattern that cycles every 8 levels:
+  - **Level 1**: Pattern 0 (Full grid)
+  - **Level 2**: Pattern 1 (Checkerboard)
+  - **Level 3**: Pattern 2 (Pyramid)
+  - **Level 4**: Pattern 3 (Hollow center)
+  - **Level 5**: Pattern 4 (Side columns)
+  - **Level 6**: Pattern 5 (Diagonal stripes)
+  - **Level 7**: Pattern 6 (Concentric rings)
+  - **Level 8**: Pattern 7 (Sparse random)
+  - **Level 9+**: Cycles back to Pattern 0
 - **Brick Rows**: Starting at 5 rows, increases by 1 every 3 levels
 - **Ball Speed**: Increases by 5% per level
 - **Level Reset**: If the ball falls below the paddle, the current level resets (score is preserved)
+- **Manual Level Selection**: Use keyboard shortcuts (1-9, +, -) or UI controls to jump between levels
 
 ### Scoring
 
@@ -209,6 +237,17 @@ When the ball falls below the paddle:
 - Score is preserved (unless `RESET_SCORE_ON_LEVEL_RESET` is true)
 - Game continues - no game-over screen
 
+### Manual Level Selection
+
+The game supports manual level navigation for testing and gameplay:
+
+- **Immediate Level Change**: When you change levels manually, the game immediately:
+  - Resets all game objects (ball, paddle, bricks, power-ups)
+  - Generates the new level's pattern
+  - Maintains or resets score based on configuration
+- **Keyboard Shortcuts**: Quick level navigation without interrupting gameplay
+- **UI Controls**: Visual level selector with input field and navigation buttons
+
 ### Collision Detection
 
 Uses simple AABB (Axis-Aligned Bounding Box) collision detection:
@@ -242,7 +281,7 @@ Uses simple AABB (Axis-Aligned Bounding Box) collision detection:
 
 ### Adding New Level Patterns
 
-Modify `getLevelLayoutPattern()` in `GameCanvas.tsx` to add new layout types.
+Modify `getLevelLayoutPattern()` in `GameCanvas.tsx` to add new layout types. The pattern selection uses `(level - 1) % 8` to cycle through 8 patterns, so adding more patterns requires updating the modulo value and adding new cases to the switch statement.
 
 ### Adjusting Difficulty
 

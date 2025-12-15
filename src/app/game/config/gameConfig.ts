@@ -41,7 +41,7 @@ export const GameConfig = {
 
   // Scoring
   POINTS_PER_BRICK: 10,
-  RESET_SCORE_ON_LEVEL_RESET: false, // Keep score when level resets
+  RESET_SCORE_ON_LEVEL_RESET: true, // Reset score when level resets
 
   // Level progression
   BRICK_ROWS_INCREASE_INTERVAL: 3, // Add 1 row every 3 levels

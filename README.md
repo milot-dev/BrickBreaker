@@ -1,17 +1,17 @@
 # Brick Breaker Game
 
-A simplified, beginner-friendly Brick Breaker game built with Next.js, React, and TypeScript. Break all the bricks to advance to the next level!
+A simplified, beginner friendly Brick Breaker game built with Next.js, React, and TypeScript. Break all the bricks to advance to the next level!
 
 ## Game Overview
 
 ### Description
 
-Brick Breaker is a classic arcade-style game where you control a paddle to bounce a ball and break bricks. The game features:
+Brick Breaker is a classic arcade style game where you control a paddle to bounce a ball and break bricks. The game features:
 
 - **Level Progression**: Multiple levels with gradually increasing difficulty
-- **Power-Ups**: Collect power-ups that drop from broken bricks
+- **Power Ups**: Collect power ups that drop from broken bricks
 - **Simple Scoring**: Earn points for each brick you break
-- **Relaxing Gameplay**: No lives system - just reset the level and try again!
+- **Relaxing Gameplay**: No lives system just reset the level and try again!
 
 ### Controls
 
@@ -36,9 +36,9 @@ You can manually change levels using keyboard shortcuts or UI controls:
 
 Level changes immediately reset the game state and load the new level's pattern.
 
-### Power-Ups
+### Power Ups
 
-Power-ups randomly drop from destroyed bricks (15% chance):
+Power ups randomly drop from destroyed bricks (15% chance):
 
 1. **Paddle Size Increase** (Green Icon)
 
@@ -58,7 +58,7 @@ Power-ups randomly drop from destroyed bricks (15% chance):
    - Awards points for all destroyed bricks
    - Great for clearing difficult rows quickly
 
-Active power-ups with durations are displayed in the top UI with a countdown timer.
+Active power ups with durations are displayed in the top UI with a countdown timer.
 
 ## Project Structure
 
@@ -69,8 +69,8 @@ src/app/game/
 ├── gameObjects/
 │   ├── Ball.ts                 # Ball physics and rendering
 │   ├── Brick.ts                # Brick rendering
-│   ├── Paddle.ts               # Paddle with power-up support
-│   └── PowerUp.ts              # Power-up drop system
+│   ├── Paddle.ts               # Paddle with power up support
+│   └── PowerUp.ts              # Power up drop system
 ├── utils/
 │   ├── Particle.ts             # Particle effects
 │   └── SoundManager.ts         # Audio feedback
@@ -83,8 +83,8 @@ src/app/game/
 - **gameConfig.ts**: All tunable game constants (speeds, sizes, durations, etc.)
 - **Ball.ts**: Handles ball movement, collision, and rendering with speed multiplier support
 - **Brick.ts**: Simple brick rendering with color gradients
-- **Paddle.ts**: Paddle movement, bounds checking, and power-up size modifications
-- **PowerUp.ts**: Power-up drop mechanics, collision detection, and rendering
+- **Paddle.ts**: Paddle movement, bounds checking, and power up size modifications
+- **PowerUp.ts**: Power up drop mechanics, collision detection, and rendering
 - **GameCanvas.tsx**: Main game loop, collision detection, level management, and rendering
 - **Particle.ts**: Particle effects for visual feedback
 - **SoundManager.ts**: Web Audio API sound effects
@@ -101,15 +101,15 @@ The ball moves continuously and bounces off:
 
 The paddle moves horizontally based on keyboard input and stays within canvas bounds.
 
-### Power-Up System
+### Power Up System
 
-1. **Spawning**: When a brick is destroyed, there's a 15% chance a power-up will drop
-2. **Collection**: Power-ups fall downward and are collected when they touch the paddle
-3. **Activation**: Power-ups activate immediately upon collection
+1. **Spawning**: When a brick is destroyed, there's a 15% chance a power up will drop
+2. **Collection**: Power ups fall downward and are collected when they touch the paddle
+3. **Activation**: Power ups activate immediately upon collection
 4. **Types**:
-   - **Duration-based**: Paddle Size Increase and Slow Ball have fixed durations (see Configuration)
+   - **Duration based**: Paddle Size Increase and Slow Ball have fixed durations (see Configuration)
    - **Instant**: Destroy Row activates immediately with no duration
-5. **Display**: Active power-ups with durations show a countdown timer in the UI
+5. **Display**: Active power ups with durations show a countdown timer in the UI
 
 ### Level Progression
 
@@ -158,7 +158,7 @@ BALL_BASE_SPEED: 6,                          // Base speed for dx and dy
 BALL_SPEED_INCREASE_PER_LEVEL: 0.05,         // 5% speed increase per level
 ```
 
-### Power-Up Settings
+### Power Up Settings
 
 ```typescript
 POWERUP_SPAWN_RATE: 0.15,                    // 15% chance to drop
@@ -222,9 +222,9 @@ npm start
 
 The game uses `requestAnimationFrame` for smooth 60 FPS gameplay:
 
-1. **Update Phase**: Update all game objects (ball, paddle, power-ups, particles)
+1. **Update Phase**: Update all game objects (ball, paddle, power ups, particles)
 2. **Collision Detection**: Check collisions between ball and walls, paddle, bricks
-3. **State Management**: Handle level completion, power-up expiration, score updates
+3. **State Management**: Handle level completion, power up expiration, score updates
 4. **Rendering Phase**: Draw all game objects to the canvas
 
 ### Level Reset Logic
@@ -235,14 +235,14 @@ When the ball falls below the paddle:
 - Ball and paddle return to starting positions
 - Bricks are regenerated with the same layout
 - Score is preserved (unless `RESET_SCORE_ON_LEVEL_RESET` is true)
-- Game continues - no game-over screen
+- Game continues - no game over screen
 
 ### Manual Level Selection
 
 The game supports manual level navigation for testing and gameplay:
 
 - **Immediate Level Change**: When you change levels manually, the game immediately:
-  - Resets all game objects (ball, paddle, bricks, power-ups)
+  - Resets all game objects (ball, paddle, bricks, power ups)
   - Generates the new level's pattern
   - Maintains or resets score based on configuration
 - **Keyboard Shortcuts**: Quick level navigation without interrupting gameplay
@@ -250,7 +250,7 @@ The game supports manual level navigation for testing and gameplay:
 
 ### Collision Detection
 
-Uses simple AABB (Axis-Aligned Bounding Box) collision detection:
+Uses simple AABB (Axis Aligned Bounding Box) collision detection:
 
 - Ball is treated as a circle
 - Bricks and paddle are rectangles
@@ -259,7 +259,7 @@ Uses simple AABB (Axis-Aligned Bounding Box) collision detection:
 
 ## Future Extensions
 
-### Adding New Power-Ups
+### Adding New Power Ups
 
 1. Add new type to `PowerUpType` in `PowerUp.ts`:
 
@@ -271,13 +271,13 @@ Uses simple AABB (Axis-Aligned Bounding Box) collision detection:
      | "yourNewPowerUp";
    ```
 
-2. Add rendering logic in `PowerUp.draw()` to display the power-up icon
+2. Add rendering logic in `PowerUp.draw()` to display the power up icon
 
-3. Add activation logic in `GameCanvas.tsx` power-up collection handler (around line 432)
+3. Add activation logic in `GameCanvas.tsx` power up collection handler (around line 432)
 
-4. Update power-up spawn logic in `GameCanvas.tsx` (around line 351) to include the new type in random selection
+4. Update power up spawn logic in `GameCanvas.tsx` (around line 351) to include the new type in random selection
 
-5. If the power-up has a duration, add configuration values in `gameConfig.ts` and update the power-up display state
+5. If the power up has a duration, add configuration values in `gameConfig.ts` and update the power up display state
 
 ### Adding New Level Patterns
 
@@ -295,11 +295,15 @@ Modify these values in `gameConfig.ts`:
 
 - **Next.js 16**: React framework
 - **React 19**: UI library
-- **TypeScript**: Type-safe JavaScript
+- **TypeScript**: Type safe JavaScript
 - **Tailwind CSS**: Styling
 - **Canvas API**: 2D rendering
 - **Web Audio API**: Sound effects
 
+## Contributors
+Milot Hyseni
+Shend Hetemi
+
 ## License
 
-This project is open source and available for learning and modification.
+This project is open source and available for learning and modification. Developed as a college project for Game Development subject.
